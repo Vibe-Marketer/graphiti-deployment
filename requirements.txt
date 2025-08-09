@@ -1,0 +1,41 @@
+# Graphiti Core Dependencies
+graphiti-core[neo4j]==0.3.0
+
+# Optional LLM Provider Support
+graphiti-core[anthropic]
+graphiti-core[groq]
+graphiti-core[google-genai]
+
+# Web Framework Dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Database Drivers
+neo4j==5.15.0
+
+# HTTP Client Libraries
+httpx==0.25.2
+aiohttp==3.9.1
+
+# Environment and Configuration
+python-dotenv==1.0.0
+pydantic-settings==2.1.0
+
+# Logging and Monitoring
+structlog==23.2.0
+prometheus-client==0.19.0
+
+# Security
+cryptography==41.0.8
+
+# Development and Testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+isort==5.12.0
+mypy==1.7.1
+
+# Production WSGI Server
+gunicorn==21.2.0
+

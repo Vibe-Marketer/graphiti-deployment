@@ -1,0 +1,407 @@
+#!/bin/bash
+
+# Graphiti Deployment Setup Script
+# This script helps you get started with Graphiti deployment
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_header() {
+    echo -e "${PURPLE}================================${NC}"
+    echo -e "${PURPLE}$1${NC}"
+    echo -e "${PURPLE}================================${NC}"
+}
+
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_step() {
+    echo -e "${CYAN}[STEP]${NC} $1"
+}
+
+# Function to prompt for user input
+prompt_input() {
+    local prompt="$1"
+    local var_name="$2"
+    local is_secret="${3:-false}"
+    
+    if [ "$is_secret" = "true" ]; then
+        echo -n -e "${YELLOW}$prompt:${NC} "
+        read -s value
+        echo ""
+    else
+        echo -n -e "${YELLOW}$prompt:${NC} "
+        read value
+    fi
+    
+    eval "$var_name='$value'"
+}
+
+# Function to validate API key format
+validate_api_key() {
+    local key="$1"
+    local provider="$2"
+    
+    case "$provider" in
+        "openai")
+            if [[ $key =~ ^sk-[a-zA-Z0-9]{48,}$ ]]; then
+                return 0
+            fi
+            ;;
+        "anthropic")
+            if [[ $key =~ ^sk-ant-[a-zA-Z0-9_-]{95,}$ ]]; then
+                return 0
+            fi
+            ;;
+        *)
+            if [ ${#key} -gt 10 ]; then
+                return 0
+            fi
+            ;;
+    esac
+    return 1
+}
+
+# Function to check prerequisites
+check_prerequisites() {
+    print_step "Checking prerequisites..."
+    
+    local missing_tools=()
+    
+    # Check for required tools
+    if ! command -v git &> /dev/null; then
+        missing_tools+=("git")
+    fi
+    
+    if ! command -v curl &> /dev/null; then
+        missing_tools+=("curl")
+    fi
+    
+    if ! command -v docker &> /dev/null; then
+        print_warning "Docker not found - local development will not be available"
+    fi
+    
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        print_error "Missing required tools: ${missing_tools[*]}"
+        print_status "Please install the missing tools and run this script again"
+        exit 1
+    fi
+    
+    print_success "Prerequisites check completed"
+}
+
+# Function to collect API keys
+collect_api_keys() {
+    print_step "Collecting API keys..."
+    
+    echo ""
+    print_status "You'll need at least an OpenAI API key to use Graphiti."
+    print_status "Other providers are optional but recommended for redundancy."
+    echo ""
+    
+    # OpenAI API Key (required)
+    while true; do
+        prompt_input "Enter your OpenAI API key (required)" OPENAI_API_KEY true
+        
+        if [ -z "$OPENAI_API_KEY" ]; then
+            print_error "OpenAI API key is required"
+            continue
+        fi
+        
+        if validate_api_key "$OPENAI_API_KEY" "openai"; then
+            print_success "OpenAI API key format looks valid"
+            break
+        else
+            print_warning "API key format doesn't look standard, but proceeding anyway"
+            break
+        fi
+    done
+    
+    # Optional API keys
+    echo ""
+    print_status "Optional API keys (press Enter to skip):"
+    
+    prompt_input "Anthropic API key (optional)" ANTHROPIC_API_KEY true
+    prompt_input "Google Gemini API key (optional)" GOOGLE_API_KEY true
+    prompt_input "Groq API key (optional)" GROQ_API_KEY true
+    
+    print_success "API keys collected"
+}
+
+# Function to choose deployment platform
+choose_platform() {
+    print_step "Choosing deployment platform..."
+    
+    echo ""
+    print_status "Available deployment platforms:"
+    echo "1) Render (Recommended for production)"
+    echo "2) Railway (Great for development)"
+    echo "3) Local development only"
+    echo ""
+    
+    while true; do
+        prompt_input "Choose platform (1-3)" platform_choice
+        
+        case "$platform_choice" in
+            1)
+                DEPLOYMENT_PLATFORM="render"
+                print_success "Selected: Render"
+                break
+                ;;
+            2)
+                DEPLOYMENT_PLATFORM="railway"
+                print_success "Selected: Railway"
+                break
+                ;;
+            3)
+                DEPLOYMENT_PLATFORM="local"
+                print_success "Selected: Local development"
+                break
+                ;;
+            *)
+                print_error "Invalid choice. Please enter 1, 2, or 3."
+                ;;
+        esac
+    done
+}
+
+# Function to create environment file
+create_env_file() {
+    print_step "Creating environment configuration..."
+    
+    cat > .env << EOF
+# Graphiti Environment Configuration
+# Generated by setup script on $(date)
+
+# Application Configuration
+PORT=8000
+ENVIRONMENT=production
+LOG_LEVEL=info
+
+# Neo4j Database Configuration
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=graphiti123
+NEO4J_DATABASE=neo4j
+
+# LLM Provider Configuration
+OPENAI_API_KEY=$OPENAI_API_KEY
+EOF
+
+    # Add optional API keys if provided
+    if [ -n "$ANTHROPIC_API_KEY" ]; then
+        echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
+    fi
+    
+    if [ -n "$GOOGLE_API_KEY" ]; then
+        echo "GOOGLE_API_KEY=$GOOGLE_API_KEY" >> .env
+    fi
+    
+    if [ -n "$GROQ_API_KEY" ]; then
+        echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+    fi
+    
+    # Add remaining configuration
+    cat >> .env << EOF
+
+# Graphiti Configuration
+GRAPHITI_SEMAPHORE_LIMIT=10
+GRAPHITI_EMBEDDING_DIM=1536
+GRAPHITI_MAX_TOKENS=4000
+
+# Security Configuration
+SECRET_KEY=$(openssl rand -base64 32 | tr -d '=' | head -c 32)
+CORS_ORIGINS=*
+
+# Performance Configuration
+WORKER_PROCESSES=1
+MAX_CONNECTIONS=100
+TIMEOUT=30
+
+# Feature Flags
+ENABLE_AUTHENTICATION=false
+ENABLE_RATE_LIMITING=true
+ENABLE_CACHING=true
+EOF
+
+    print_success "Environment file created: .env"
+}
+
+# Function to initialize git repository
+init_git_repo() {
+    print_step "Initializing Git repository..."
+    
+    if [ ! -d ".git" ]; then
+        git init
+        print_success "Git repository initialized"
+    else
+        print_status "Git repository already exists"
+    fi
+    
+    # Create initial commit if needed
+    if ! git rev-parse HEAD &> /dev/null; then
+        git add .
+        git commit -m "Initial Graphiti deployment setup"
+        print_success "Initial commit created"
+    fi
+}
+
+# Function to provide next steps
+show_next_steps() {
+    print_header "Setup Complete! 🎉"
+    
+    echo ""
+    print_status "Your Graphiti deployment is ready. Here's what to do next:"
+    echo ""
+    
+    case "$DEPLOYMENT_PLATFORM" in
+        "render")
+            print_step "Render Deployment:"
+            echo "1. Create a Render account at https://render.com"
+            echo "2. Get your Render API key from dashboard"
+            echo "3. Export your API key: export RENDER_API_KEY=your_key"
+            echo "4. Run: ./scripts/deploy-render.sh"
+            ;;
+        "railway")
+            print_step "Railway Deployment:"
+            echo "1. Install Railway CLI: npm install -g @railway/cli"
+            echo "2. Login to Railway: railway login"
+            echo "3. Run: ./scripts/deploy-railway.sh"
+            ;;
+        "local")
+            print_step "Local Development:"
+            echo "1. Start services: docker-compose up -d"
+            echo "2. Access Graphiti: http://localhost:8000"
+            echo "3. Access Neo4j: http://localhost:7474"
+            echo "4. API docs: http://localhost:8000/docs"
+            ;;
+    esac
+    
+    echo ""
+    print_step "Useful Commands:"
+    echo "• Test health: curl http://localhost:8000/health"
+    echo "• View logs: docker-compose logs -f graphiti"
+    echo "• Stop services: docker-compose down"
+    echo "• Update deployment: git push (for cloud platforms)"
+    
+    echo ""
+    print_step "Documentation:"
+    echo "• README.md - Complete deployment guide"
+    echo "• API docs - Available at /docs endpoint"
+    echo "• Troubleshooting - See README.md"
+    
+    echo ""
+    print_success "Happy knowledge graphing! 🧠✨"
+}
+
+# Function to run local test
+run_local_test() {
+    if [ "$DEPLOYMENT_PLATFORM" = "local" ] && command -v docker-compose &> /dev/null; then
+        echo ""
+        prompt_input "Would you like to start local services now? (y/N)" start_local
+        
+        if [[ "$start_local" =~ ^[Yy]$ ]]; then
+            print_step "Starting local services..."
+            docker-compose up -d
+            
+            print_status "Waiting for services to start..."
+            sleep 30
+            
+            print_status "Testing health endpoint..."
+            if curl -s http://localhost:8000/health > /dev/null; then
+                print_success "Local deployment is running!"
+                print_status "Access your Graphiti API at: http://localhost:8000"
+            else
+                print_warning "Services may still be starting. Check with: docker-compose logs"
+            fi
+        fi
+    fi
+}
+
+# Main setup function
+main() {
+    print_header "Graphiti Deployment Setup"
+    
+    echo ""
+    print_status "This script will help you set up Graphiti for deployment."
+    print_status "You'll need API keys and will choose a deployment platform."
+    echo ""
+    
+    check_prerequisites
+    echo ""
+    
+    collect_api_keys
+    echo ""
+    
+    choose_platform
+    echo ""
+    
+    create_env_file
+    echo ""
+    
+    init_git_repo
+    echo ""
+    
+    show_next_steps
+    
+    run_local_test
+}
+
+# Handle script arguments
+case "${1:-}" in
+    "test")
+        print_status "Testing local deployment..."
+        if [ -f ".env" ]; then
+            source .env
+            curl -s http://localhost:8000/health | jq '.' || curl -s http://localhost:8000/health
+        else
+            print_error "No .env file found. Run setup first."
+        fi
+        ;;
+    "clean")
+        print_warning "This will remove .env file and stop local services. Continue? (y/N)"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            docker-compose down -v 2>/dev/null || true
+            rm -f .env
+            print_success "Cleanup completed"
+        fi
+        ;;
+    "help"|"-h"|"--help")
+        echo "Graphiti Deployment Setup Script"
+        echo ""
+        echo "Usage: $0 [command]"
+        echo ""
+        echo "Commands:"
+        echo "  (no args)  Run interactive setup"
+        echo "  test       Test local deployment"
+        echo "  clean      Clean up local environment"
+        echo "  help       Show this help message"
+        ;;
+    *)
+        main "$@"
+        ;;
+esac
+
