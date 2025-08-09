@@ -78,19 +78,16 @@ async def lifespan(app: FastAPI):
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
-        neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
         
-        # Initialize Graphiti with Neo4j configuration
-        graphiti_instance = Graphiti(
-            neo4j_uri=neo4j_uri,
-            neo4j_user=neo4j_username,
-            neo4j_password=neo4j_password,
-            neo4j_database=neo4j_database
-        )
+        # Initialize Graphiti with positional arguments (uri, user, password)
+        graphiti_instance = Graphiti(neo4j_uri, neo4j_username, neo4j_password)
+        
+        # Initialize the graph database with graphiti's indices
+        await graphiti_instance.build_indices_and_constraints()
         
         logger.info("Graphiti initialized successfully", 
                    neo4j_uri=neo4j_uri, 
-                   database=neo4j_database)
+                   neo4j_user=neo4j_username)
         
         yield
         
