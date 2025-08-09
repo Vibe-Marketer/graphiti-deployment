@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 import structlog
 
 from graphiti_core import Graphiti
-from graphiti_core.driver.neo4j_driver import Neo4jDriver
 
 # Configure structured logging
 structlog.configure(
@@ -75,21 +74,19 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Graphiti application")
     
     try:
-        # Initialize Neo4j driver
+        # Get environment variables
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
         
-        driver = Neo4jDriver(
-            uri=neo4j_uri,
-            user=neo4j_user,
-            password=neo4j_password,
-            database=neo4j_database
+        # Initialize Graphiti with Neo4j configuration
+        graphiti_instance = Graphiti(
+            neo4j_uri=neo4j_uri,
+            neo4j_user=neo4j_username,
+            neo4j_password=neo4j_password,
+            neo4j_database=neo4j_database
         )
-        
-        # Initialize Graphiti
-        graphiti_instance = Graphiti(graph_driver=driver)
         
         logger.info("Graphiti initialized successfully", 
                    neo4j_uri=neo4j_uri, 
