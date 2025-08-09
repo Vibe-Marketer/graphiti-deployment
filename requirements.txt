@@ -9,7 +9,7 @@ graphiti-core[google-genai]
 # Web Framework Dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.5.0
+pydantic>=2.8.2,<3.0.0
 
 # Database Drivers
 neo4j>=5.23.0,<6.0.0
